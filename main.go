@@ -11,9 +11,11 @@ import (
 	"time"
 )
 
-const quiz_api_url string ="https://api.trivia.willfry.co.uk/questions?limit=10"
+const quiz_api_url string ="https://api.trivia.willfry.co.uk/questions?limit=3"
+// number of questions can be changed by changing the limit query paramter
+var timeLimit int = 30
 
-type Questions struct {
+type questions struct {
 	Category string `json:"category"`
 	CorrectAnswer string `json:"correctAnswer"`
 	Id int `json:"id"`
@@ -23,6 +25,7 @@ type Questions struct {
 }
 
 func main() {
+	//example response
 	// "category": "Society and Culture", 
     // "correctAnswer": "Japan",
     // "id": 18776,
@@ -33,25 +36,13 @@ func main() {
     // ],
     // "question": "In what country do people speak the Language they call Nihongo?",
     // "type": "Multiple Choice"
-	resp, err := http.Get(quiz_api_url)
-	if err != nil{
-		exit("Error fectching trivia questions")
-	}
 
-	resBody,_ := io.ReadAll(resp.Body)
+	questions:= FetchQuiz()
 
-	var questions []Questions
-
-	err = json.Unmarshal(resBody,&questions)
-
-	if err != nil{
-		println(err)
-		exit("error parsing json response")
-	}
-
+	var correct int = 0
 	reader:= bufio.NewReader(os.Stdin)
 
-	var correct int;
+	timer := time.NewTimer(time.Duration(timeLimit)*time.Second)
 
 	for i,q := range questions{
 		possibleAnswers:=[]string{q.CorrectAnswer}
@@ -61,13 +52,20 @@ func main() {
 			for _,a:= range shuffledAnswers{
 			fmt.Printf("%v \n",a)
 		}
-		input, _,_:= reader.ReadLine()
-		if  string(input) == q.CorrectAnswer {
-			correct++
-		}
+		input := make(chan string)
+		go answerChannel(reader,input)
 
+		select{
+			case <- timer.C:
+			fmt.Printf("Time is up!, you scored %d out of %d \n",correct, len(questions))
+			os.Exit(1)
+			case answer := <- input:
+				if answer == q.CorrectAnswer{
+					correct++
+				}
+		}
 	}
-	fmt.Printf("You got %v  answers correct",correct)
+	fmt.Printf("you scored %d out of %d \n",correct, len(questions))
 }
 
 
@@ -76,10 +74,36 @@ func exit(msg string){
 	os.Exit(1)
 }
 
+func FetchQuiz()([]questions){
+	resp, err := http.Get(quiz_api_url)
+	if err != nil{
+		exit("Error fectching trivia questions")
+	}
+
+	resBody,_ := io.ReadAll(resp.Body)
+
+	var questions []questions
+	
+	err = json.Unmarshal(resBody,&questions)
+
+	if err != nil{
+		println(err)
+		exit("error parsing json response")
+	}
+	return questions
+	
+}
+
+func answerChannel(reader *bufio.Reader,answer chan string){
+	input, _,_:= reader.ReadLine()
+	answer <- string(input)
+}
+
+
 func shuffleAnswers(answerList []string)(shuffledAnsewers []string){
 	rand.Seed(time.Now().Unix())
 	rand.Shuffle(len(answerList), func(i, j int) {
-        answerList[i], answerList[j] = answerList[j], answerList[i]
+		answerList[i], answerList[j] = answerList[j], answerList[i]
     })
 	return answerList
 }
